@@ -1,0 +1,4 @@
+endpoints.shutdown.sensitive=false
+endpoints.shutdown.enabled=true
+server.shutdown=graceful
+spring.lifecycle.timeout-per-shutdown-phase=10s
