@@ -22,7 +22,7 @@ public class NodeController {
     @ResponseBody
     public String addDest(@PathVariable Integer portNumber) throws Exception {
         System.out.println("Adding destination port: " + portNumber);
-        if (portNumber != null) {
+        /*if (portNumber != null) {
             String responce = restTemplate.getForObject("http://localhost:" + portNumber + "/wallet/getPublicKey", String.class);
             if (responce != null && !responce.isBlank()) {
                 if (destinations.contains(portNumber)) {
@@ -33,7 +33,8 @@ public class NodeController {
             }
             throw new Exception("Destination not ready!");
         }
-        throw new Exception("Failed to add myself to parent node!");
+        throw new Exception("Failed to add myself to parent node!");*/
+        return "" + portNumber;
     }
 
 
