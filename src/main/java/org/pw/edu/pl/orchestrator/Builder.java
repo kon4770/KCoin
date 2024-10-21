@@ -1,20 +1,44 @@
 package org.pw.edu.pl.orchestrator;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pw.edu.pl.node.App;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.pw.edu.pl.orchestrator.Config.NUMBER_OF_NODES;
+import static org.pw.edu.pl.orchestrator.Config.PORT_START;
 
 public class Builder {
+    public static ObjectMapper objectMapper = new ObjectMapper();
+    public static void saveAllPasswords(Map<String, String> passwords) throws Exception {
+        File file = new File("AllPasswordsJustForManagement.json");
+        file.delete();
+        if(!file.exists() && file.createNewFile()){
+            FileWriter writer = new FileWriter(file);
+            writer.write(objectMapper.writeValueAsString(passwords));
+            writer.close();
+        }
+    }
 
-    public static void main(String[] args) {
+    public static Map<String, String> readAllPasswords() throws Exception {
+        File file = new File("AllPasswordsJustForManagement.json");
+        if(!file.exists()){
+            System.out.println("No password file to read");
+            return new HashMap<>();
+        } else {
+            return objectMapper.readValue(file, Map.class);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
         System.out.println("This is builder");
-
-        for (int i = 0; i < 20; i++) {
-            String port = "3" + (100 + i);
+        for (int i = 0; i < NUMBER_OF_NODES; i++) {
+            String port = String.valueOf(PORT_START + i);
             // Command to be executed
             String[] command = {"C:\\Users\\Legion\\.jdks\\corretto-11.0.15\\bin\\java.exe", "-jar", ".\\target\\KCoin-1.0-SNAPSHOT-jar-with-dependencies.jar", "--server.port=" + port};
 

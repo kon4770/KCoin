@@ -37,7 +37,7 @@ public class WalletController {
 
     }
 
-    @GetMapping("/wallet/generateNewKey")
+    @PostMapping("/wallet/generateNewKey")
     @ResponseBody
     public ResponseEntity<String> generateNewKey(@RequestBody(required = false) String plainTextPassword) {
         try {
@@ -122,17 +122,6 @@ public class WalletController {
             result.add(Base64.getEncoder().encodeToString(identity.getPublicKey().getEncoded()));
         });
         return objectMapper.writeValueAsString(result);
-    }
-
-    private String generateRandomString(int length) {
-        String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-        StringBuilder result = new StringBuilder();
-        Random random = new Random();
-        for (int i = 0; i < length; i++) {
-            int randomIndex = random.nextInt(characters.length());
-            result.append(characters.charAt(randomIndex));
-        }
-        return result.toString();
     }
 
     // AES Encryption
