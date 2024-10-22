@@ -15,4 +15,5 @@ import java.security.PublicKey;
 public class Identity {
     private PrivateKey privateKey;
     private PublicKey publicKey;
+    private byte[] iv;
 }

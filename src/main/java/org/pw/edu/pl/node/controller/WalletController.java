@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.KeyGenerator;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
 import java.security.*;
@@ -62,9 +63,13 @@ public class WalletController {
                 keyPairGenerator.initialize(2048);
                 KeyPair keyPair = keyPairGenerator.generateKeyPair();
                 PrivateKey privateKey = keyPair.getPrivate();
+                byte[] iv = new byte[12];
+                SecureRandom secureRandom = new SecureRandom();
+                secureRandom.nextBytes(iv);  // Generate random IV
                 Identity identity = new Identity();
                 identity.setPrivateKey(privateKey);
                 identity.setPublicKey(keyPair.getPublic());
+                identity.setIv(iv);
                 if (identityList == null) {
                     identityList = new ArrayList<>();
                 }
@@ -95,15 +100,17 @@ public class WalletController {
             for (List<String> list : parsedFile) {
                 String encryptedPrivateKey = list.get(0);
                 String hashedPrivateKey = list.get(1);
+                String iv = list.get(2);
                 SecretKey secretKey = new SecretKeySpec(susPassword, "AES");
                 byte[] privateKeyBytesEncrypted = Base64.getDecoder().decode(encryptedPrivateKey);
-                byte[] privateKey = AESdecrypt(privateKeyBytesEncrypted, secretKey);
+                byte[] privateKey = AESdecrypt(privateKeyBytesEncrypted, secretKey, Base64.getDecoder().decode(iv));
                 MessageDigest digest = MessageDigest.getInstance("SHA-256");
                 String trustedHashedPrivateKey = bytesToHex(digest.digest(privateKey));
                 if (hashedPrivateKey.equals(trustedHashedPrivateKey.strip())) {
                     Identity identity = new Identity();
                     identity.setPrivateKey(getPrivateKeyFromBytes(privateKey));
                     identity.setPublicKey(getPublicKeyFromPrivateKey(identity.getPrivateKey()));
+                    identity.setIv(Base64.getDecoder().decode(iv));
                     identityList.add(identity);
                     password = susPassword;
                 } else {
@@ -125,10 +132,11 @@ public class WalletController {
     }
 
     // AES Encryption
-    public static String AESencrypt(String plainText, SecretKey secretKey) throws Exception {
+    public static String AESencrypt(String plainText, SecretKey secretKey, byte[] iv) throws Exception {
         // Create Cipher instance and initialize it for encryption
-        Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        GCMParameterSpec gcmSpec = new GCMParameterSpec(128, iv);  // 128-bit tag size
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, gcmSpec);
 
         // Perform encryption
         byte[] encryptedBytes = cipher.doFinal(Base64.getDecoder().decode(plainText));
@@ -138,10 +146,12 @@ public class WalletController {
     }
 
     // AES Decryption
-    public static byte[] AESdecrypt(byte[] encryptedText, SecretKey secretKey) throws Exception {
+    public static byte[] AESdecrypt(byte[] encryptedText, SecretKey secretKey, byte[] iv) throws Exception {
         // Create Cipher instance and initialize it for decryption
-        Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.DECRYPT_MODE, secretKey);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        GCMParameterSpec gcmSpec = new GCMParameterSpec(128, iv);  // 128-bit tag size
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, gcmSpec);
+
 
         // Perform decryption
         byte[] decryptedBytes = cipher.doFinal(encryptedText);
@@ -197,7 +207,8 @@ public class WalletController {
             String privateKey = Base64.getEncoder().encodeToString(identity.getPrivateKey().getEncoded());
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             String hashedPrivateKey = bytesToHex(digest.digest(identity.getPrivateKey().getEncoded()));
-            List<String> singlePair = List.of(AESencrypt(privateKey, secretKey), hashedPrivateKey);
+            String iv = Base64.getEncoder().encodeToString(identity.getIv());
+            List<String> singlePair = List.of(AESencrypt(privateKey, secretKey, identity.getIv()), hashedPrivateKey, iv);
             resultList.add(singlePair);
         }
         return resultList;
