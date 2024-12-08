@@ -2,7 +2,10 @@ package org.pw.edu.pl.node.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.pw.edu.pl.node.model.Block;
 import org.pw.edu.pl.node.model.Identity;
+import org.pw.edu.pl.node.model.Transaction;
+import org.pw.edu.pl.node.model.TransactionUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.web.context.WebServerApplicationContext;
@@ -17,9 +20,13 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
+import java.math.BigDecimal;
 import java.security.*;
 import java.security.spec.*;
 import java.util.*;
+
+import static org.pw.edu.pl.node.controller.NodeController.blockMap;
+import static org.pw.edu.pl.node.controller.NodeController.generateRandomString;
 
 
 @Controller
@@ -29,6 +36,8 @@ public class WalletController {
     public static byte[] password;
 
     private ObjectMapper objectMapper = new ObjectMapper();
+
+    public static Map<String, Transaction> transactionPool;
 
     @Autowired
     private WebServerApplicationContext webServerAppCtxt;
@@ -121,6 +130,21 @@ public class WalletController {
         return ResponseEntity.ok("Initialized");
     }
 
+    @PostMapping("/wallet/newPayment/")
+    @ResponseBody
+    public boolean newPayment(@RequestBody String destination, String amountString) {
+        BigDecimal amount = new BigDecimal(amountString);
+        Transaction newTransaction = Transaction.builder()
+                .destinations(List.of(TransactionUnit.builder()
+                        .amount(amount)
+                        .publicKey(destination)
+                        .build()))
+                //.sources(getUnspentTransactions()// TODO
+                .build();
+        transactionPool.put(generateRandomString(), newTransaction);
+        return false;
+    }
+
     @GetMapping("/wallet/getPublicKeys")
     @ResponseBody
     public String addDest() throws JsonProcessingException {
@@ -161,7 +185,7 @@ public class WalletController {
     }
 
     // Method to convert byte array into hexadecimal string
-    private static String bytesToHex(byte[] hash) {
+    public static String bytesToHex(byte[] hash) {
         StringBuilder hexString = new StringBuilder(2 * hash.length);
         for (byte b : hash) {
             String hex = Integer.toHexString(0xff & b);
@@ -214,4 +238,26 @@ public class WalletController {
         return resultList;
     }
 
+    public List<TransactionUnit> getUnspentTransactionUnits(String publicKeyHex) {
+        List<TransactionUnit> unspentTransactionsUnits = new ArrayList<>();
+        blockMap.forEach((hash, block) -> {
+            List<Transaction> transactionList = block.getTransactionList();
+            transactionList.forEach(transaction -> {
+                transaction.getDestinations().forEach(transactionUnit -> {
+                    if(publicKeyHex.equals(transactionUnit.getPublicKey())){
+                        unspentTransactionsUnits.add(transactionUnit);
+                    }
+                });
+            });
+        });
+        return unspentTransactionsUnits;
+    }
+
+    public BigDecimal getUnspentCoins(String publicKeyHex) {
+        BigDecimal coinsLeft = new BigDecimal(0);
+        for(TransactionUnit transactionUnit: getUnspentTransactionUnits(publicKeyHex)){
+            coinsLeft = coinsLeft.add(transactionUnit.getAmount());
+        }
+        return coinsLeft;
+    }
 }
