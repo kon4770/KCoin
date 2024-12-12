@@ -20,5 +20,8 @@ public class Identity {
     public String getPublicKeyStringHex(){
         return Base64.getEncoder().encodeToString(publicKey.getEncoded());
     }
+    public String getPrivateKeyStringHex(){
+        return Base64.getEncoder().encodeToString(privateKey.getEncoded());
+    }
 
 }

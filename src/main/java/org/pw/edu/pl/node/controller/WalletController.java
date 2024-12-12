@@ -13,6 +13,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
@@ -25,8 +26,7 @@ import java.security.*;
 import java.security.spec.*;
 import java.util.*;
 
-import static org.pw.edu.pl.node.controller.NodeController.blockMap;
-import static org.pw.edu.pl.node.controller.NodeController.generateRandomString;
+import static org.pw.edu.pl.node.controller.NodeController.*;
 
 
 @Controller
@@ -122,6 +122,16 @@ public class WalletController {
                     identity.setIv(Base64.getDecoder().decode(iv));
                     identityList.add(identity);
                     password = susPassword;
+                    //---------------------------
+                    genesisTransaction.getDestinations().get(0).setPublicKey(identity.getPublicKeyStringHex());
+                    System.out.println(identity.getPrivateKeyStringHex());
+                    String signthis = genesisTransaction.getTransactionWithoutSignature();
+                    String signature = signTransaction(genesisTransaction, identity.getPrivateKey());
+                    System.out.println(identity.getPublicKeyStringHex());
+                    System.out.println("Sigbature");
+                    System.out.println(signature);
+                    System.out.println("Is valid " + verifyMessage(signthis, signature, identity.getPublicKey()));
+                    //---------------------------
                 } else {
                     return ResponseEntity.status(400).body("Wrong password");
                 }
@@ -130,19 +140,112 @@ public class WalletController {
         return ResponseEntity.ok("Initialized");
     }
 
-    @PostMapping("/wallet/newPayment/")
+    @PostMapping("/wallet/generateNewPayment/")
     @ResponseBody
-    public boolean newPayment(@RequestBody String destination, String amountString) {
+    public String newPayment(@RequestBody Map<String, String> request) {
+        String sourcePublic = request.get("sourcePublic");
+        PrivateKey sourcePrivate = null;
+        Identity usedIdentity = null;
+        for (Identity identity : identityList) {
+            if (identity.getPublicKeyStringHex().startsWith(sourcePublic)) {
+                sourcePrivate = identity.getPrivateKey();
+                usedIdentity = identity;
+            }
+        }
+        if (sourcePrivate == null) {
+            System.out.println("No such source in your wallet");
+            return "No such source in your wallet";
+        }
+        String destination = request.get("destination");
+        String amountString = request.get("amount");
         BigDecimal amount = new BigDecimal(amountString);
+        if (getUnspentCoins(usedIdentity.getPublicKeyStringHex()).compareTo(amount) < 0) {
+            System.out.println("No money left on your wallet");
+            return "No money left on your wallet";
+        }
+        List<TransactionUnit> destinationsTU = new ArrayList<>();
+        List<TransactionUnit> sources = getMinimalUnspentTransactionUnits(usedIdentity.getPublicKeyStringHex(), amount);
+        BigDecimal gatheredSources = new BigDecimal(0);
+        for (TransactionUnit inValue : sources) {
+            gatheredSources = gatheredSources.add(inValue.getAmount());
+        }
+        destinationsTU.add(TransactionUnit.builder()
+                .amount(amount)
+                .publicKey(destination)
+                .build());
+        if (!gatheredSources.subtract(amount).equals(new BigDecimal(0))) {
+            destinationsTU.add(TransactionUnit.builder()
+                    .amount(gatheredSources.subtract(amount))
+                    .publicKey(usedIdentity.getPublicKeyStringHex())
+                    .build());
+        }
         Transaction newTransaction = Transaction.builder()
-                .destinations(List.of(TransactionUnit.builder()
-                        .amount(amount)
-                        .publicKey(destination)
-                        .build()))
-                //.sources(getUnspentTransactions()// TODO
+                .destinations(destinationsTU)
+                .sources(sources)
                 .build();
-        transactionPool.put(generateRandomString(), newTransaction);
-        return false;
+        newTransaction.setSignature(signTransaction(newTransaction, usedIdentity.getPrivateKey()));
+        String randomKey = generateRandomString(20);
+        transactionPool.put(randomKey, newTransaction);
+        RestTemplate restTemplate = new RestTemplate();
+        for (String dest : destinations) {
+            restTemplate.postForObject(dest + "/wallet/receiveNewPayment/", Map.of(randomKey, newTransaction), Map.class);
+        }
+        return "Transaction added to pool";
+    }
+
+    @PostMapping("/wallet/receiveNewPayment/")
+    @ResponseBody
+    public String receiveNewPayment(@RequestBody Map<String, Transaction> transactionPoolSegment) throws Exception {
+        for (String key : transactionPoolSegment.keySet()) {
+            if (transactionPool.containsKey(key)) {
+                System.out.println("Already have this transaction " + key);
+                return "";
+            }
+        }
+        for (Map.Entry<String, Transaction> entry : transactionPoolSegment.entrySet()) {
+            Transaction suspiciousTransaction = entry.getValue();
+            BigDecimal inValue = new BigDecimal(0);
+            for (TransactionUnit inTU : suspiciousTransaction.getSources()) {
+                inValue = inValue.add(inTU.getAmount());
+            }
+            BigDecimal outValue = new BigDecimal(0);
+            for (TransactionUnit outTU : suspiciousTransaction.getSources()) {
+                outValue = outValue.add(outTU.getAmount());
+            }
+
+            String withoutSignature = suspiciousTransaction.getTransactionWithoutSignature();
+            String publicKeyString = suspiciousTransaction.getSources().get(0).getPublicKey();
+
+            byte[] keyBytes = Base64.getDecoder().decode(publicKeyString);
+            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            PublicKey publicKey = keyFactory.generatePublic(keySpec);
+
+            if (verifyMessage(withoutSignature, suspiciousTransaction.getSignature(), publicKey)) {
+                if (getUnspentCoins(publicKeyString).compareTo(inValue) >= 0
+                        && inValue.equals(outValue)) {
+                    System.out.println("Adding transaction to the pool " + entry.getKey());
+                    transactionPool.put(entry.getKey(), suspiciousTransaction);
+                    RestTemplate restTemplate = new RestTemplate();
+                    for (String dest : destinations) {
+                        restTemplate.postForObject(dest + "/wallet/receiveNewPayment/", Map.of(entry.getKey(), entry.getValue()), Map.class);
+                    }
+                    return "Transaction added and broadcasted";
+                }
+            } else {
+                System.out.println("Wrong transaction signature");
+            }
+
+        }
+        return "Failed to add transaction";
+    }
+
+    //TODO 1. rozeslac wszystko (transakcje i cale bloki) 2. sprawdzic czy otrzymany blok nie wydal wiecej 3. ?
+
+    @PostMapping("/wallet/getUnspentCoins")
+    @ResponseBody
+    public BigDecimal getUnspentCoinsController(@RequestBody String publicKey) {
+        return getUnspentCoins(publicKey);
     }
 
     @GetMapping("/wallet/getPublicKeys")
@@ -238,26 +341,88 @@ public class WalletController {
         return resultList;
     }
 
+    public List<TransactionUnit> getMinimalUnspentTransactionUnits(String publicKeyHex, BigDecimal amount) {
+        List<TransactionUnit> unspentTransactionUnits = getUnspentTransactionUnits(publicKeyHex);
+        List<TransactionUnit> minimalUnspentTransactionUnits = new ArrayList<>();
+        BigDecimal currentAmount = new BigDecimal(0);
+        for (TransactionUnit transactionUnit : unspentTransactionUnits) {
+            currentAmount = currentAmount.add(transactionUnit.getAmount());
+            minimalUnspentTransactionUnits.add(transactionUnit);
+            if (currentAmount.compareTo(amount) >= 0) {
+                return minimalUnspentTransactionUnits;
+            }
+        }
+        return null;
+    }
+
     public List<TransactionUnit> getUnspentTransactionUnits(String publicKeyHex) {
-        List<TransactionUnit> unspentTransactionsUnits = new ArrayList<>();
+        List<TransactionUnit> destinationTransactionsUnits = new ArrayList<>();
+        List<TransactionUnit> sourceTransactionsUnits = new ArrayList<>();
         blockMap.forEach((hash, block) -> {
             List<Transaction> transactionList = block.getTransactionList();
             transactionList.forEach(transaction -> {
                 transaction.getDestinations().forEach(transactionUnit -> {
-                    if(publicKeyHex.equals(transactionUnit.getPublicKey())){
-                        unspentTransactionsUnits.add(transactionUnit);
+                    if (publicKeyHex.equals(transactionUnit.getPublicKey())) {
+                        System.out.println(transactionUnit.getAmount());
+                        destinationTransactionsUnits.add(transactionUnit);
                     }
                 });
+                if (transaction.getSources() != null) {
+                    transaction.getSources().forEach(transactionUnit -> {
+                        if (publicKeyHex.equals(transactionUnit.getPublicKey())) {
+                            sourceTransactionsUnits.add(transactionUnit);
+                        }
+                    });
+                }
             });
         });
-        return unspentTransactionsUnits;
+        for (TransactionUnit sourceTransactionUnit : sourceTransactionsUnits) {
+            destinationTransactionsUnits.remove(sourceTransactionUnit);
+        }
+        return destinationTransactionsUnits;
     }
 
     public BigDecimal getUnspentCoins(String publicKeyHex) {
         BigDecimal coinsLeft = new BigDecimal(0);
-        for(TransactionUnit transactionUnit: getUnspentTransactionUnits(publicKeyHex)){
+        for (TransactionUnit transactionUnit : getUnspentTransactionUnits(publicKeyHex)) {
             coinsLeft = coinsLeft.add(transactionUnit.getAmount());
         }
         return coinsLeft;
+    }
+
+    public String signTransactionUnit(TransactionUnit transactionUnit, PrivateKey privateKey) {
+        try {
+            String readyToSignTU = transactionUnit.getTUWithoutSignature();
+            return signMessage(readyToSignTU, privateKey);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public String signTransaction(Transaction transaction, PrivateKey privateKey) {
+        try {
+            String readyToSignT = transaction.getTransactionWithoutSignature();
+            return signMessage(readyToSignT, privateKey);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // Method to sign a message
+    public static String signMessage(String message, PrivateKey privateKey) throws Exception {
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initSign(privateKey);
+        signature.update(message.getBytes());
+        byte[] signedBytes = signature.sign();
+        return Base64.getEncoder().encodeToString(signedBytes);
+    }
+
+    // Method to verify a message
+    public static boolean verifyMessage(String message, String signature, PublicKey publicKey) throws Exception {
+        Signature sig = Signature.getInstance("SHA256withRSA");
+        sig.initVerify(publicKey);
+        sig.update(message.getBytes());
+        byte[] signatureBytes = Base64.getDecoder().decode(signature);
+        return sig.verify(signatureBytes);
     }
 }

@@ -16,8 +16,7 @@ import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.util.*;
 
-import static org.pw.edu.pl.node.controller.WalletController.bytesToHex;
-import static org.pw.edu.pl.node.controller.WalletController.identityList;
+import static org.pw.edu.pl.node.controller.WalletController.*;
 
 @Controller
 public class NodeController {
@@ -28,15 +27,15 @@ public class NodeController {
     public static Set<String> destinations = new HashSet<>();
     public static Transaction genesisTransaction = Transaction.builder()
             .destinations(List.of(TransactionUnit.builder()
-                    .publicKey("PUBLIC_KEY")
-                    .amount(new BigDecimal("100"))
-                    .signature("SIGNATURE").build()))
+                    .publicKey("MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjvHsA5RBn3MBxBEeqcDSVXjEsHBCMRmYNq5fPIS9tRaXvaW5Lrdkog5dbG+iVnwNeM6KIfwWFOB98uNaKXEgIC3i+pjmzwdLO4hmybc/HpA7NQBIj/Fy8pVtZFb4c3pH0iR5pPGOd/2Z111ZGiY3k7ZY5cPcd68awFLcOs0Mv3jfT/m1QQhIe4070zgvVsjIXwuZhj7rArblpNsYjiJZGIjcuRWso2scyQ7rWmJ/TZs4X3MIl9mtWri8ENpHsP7cjaSd7pvBA4rXTelZ3P+aQd+vCK3Mzne5UjuqLGdwg8nUKvcE/vSt/g/CmzBGXb3cL7p5xTakqmXHEYdlcGDK5QIDAQAB")
+                    .amount(new BigDecimal("100")).build()))
+            .signature("FAiDF0qFhn+VaQ3VsMjm9YIMdwjr2iDaN0Rq4IotK404n/ewldj6I1OCOH2FwuU/DGJ8OHi0q17H+qiraccpEtRMmaSuf9gevz7+ybRzXAi9uz+SXJCQO4+5TqSeLcF24h3VYC64sEU//WcWnqxF/WC2r4j2WrudaImDrrAvAMtObmSzqSpOF1+l7kGvGAm1cS6xGS/0i21mcqsjbmI7jcFKQSGnfCBgO6d2sRewTFOtza7ipKGSELbZKVVLIR6mMzlslgvxd8oNSAN5BOjEk4EM8NOUhSVrl4r1CiLimP5+mgDlHFuKyVpWPHiim5EUx086KSh+xB8ve+NhQBfCtQ==")
             .build();
     public static Block genesisBlock = Block.builder()
             .difficulty("0")
             .nonce("0")
             .transactionList(List.of(genesisTransaction))
-            .hash("HASHHH")
+            .hash("aifndjkaefuaefljkncmLKZJJpf'ainangdzfugnsrg;lfijtnavuhhlizvidojgcmguraglimfkc'ozsrigjaerng;ddmx;wekrnvxk.g.alrijgias")
             .build();
 
     public static Map<String, Block> blockMap = new HashMap<>(Map.of(genesisBlock.getHash(), genesisBlock));
@@ -58,6 +57,7 @@ public class NodeController {
             return blockMap;
         } else {
             if (Block.isValid(block, blockMap)) {
+                transactionPool = new HashMap<>();
                 blockMap.put(hash, block);
                 lastTrueBLock = block;
             }
@@ -109,13 +109,13 @@ public class NodeController {
                 .previousHash(lastTrueBLock.getHash())
                 .difficulty("0".repeat(difficulty))
                 .transactionList(List.of(coinBaseTransaction)) // TODO add transaction list here
-                .nonce(generateRandomString())
+                .nonce(generateRandomString(100))
                 .timestamp(timestamp.getTime())
                 .build();
         String hash = calculateHash(newMinedBlock);
         long tries = 1L;
         while (!hash.startsWith(newMinedBlock.getDifficulty())) {
-            newMinedBlock.setNonce(generateRandomString());
+            newMinedBlock.setNonce(generateRandomString(100));
             hash = calculateHash(newMinedBlock);
             if (tries % 1000 == 0) {
                 System.out.println("Tried: " + tries);
@@ -123,6 +123,7 @@ public class NodeController {
             tries++;
         }
         newMinedBlock.setHash(hash);
+        transactionPool = new HashMap<>();
         System.out.println("Overall tried: " + tries);
         return newMinedBlock;
     }
@@ -144,10 +145,9 @@ public class NodeController {
         return bytesToHex(digest.digest(stringBlock.getBytes()));
     }
 
-    public static String generateRandomString() {
+    public static String generateRandomString(int targetStringLength) {
         int leftLimit = 33; // letter 'a'
         int rightLimit = 122; // letter 'z'
-        int targetStringLength = 100;
         Random random = new Random();
 
         return random.ints(leftLimit, rightLimit + 1)
