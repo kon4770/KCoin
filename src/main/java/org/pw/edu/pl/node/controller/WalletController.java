@@ -159,7 +159,7 @@ public class WalletController {
         String destination = request.get("destination");
         String amountString = request.get("amount");
         BigDecimal amount = new BigDecimal(amountString);
-        if (getUnspentCoins(usedIdentity.getPublicKeyStringHex()).compareTo(amount) < 0) {
+        if (getUnspentCoins(usedIdentity.getPublicKeyStringHex()).compareTo(amount) < 0 && !isEvil) {
             System.out.println("No money left on your wallet");
             return "No money left on your wallet";
         }

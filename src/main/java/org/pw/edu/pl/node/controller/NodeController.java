@@ -5,6 +5,7 @@ import org.pw.edu.pl.node.model.Block;
 import org.pw.edu.pl.node.model.Transaction;
 import org.pw.edu.pl.node.model.TransactionUnit;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
@@ -39,8 +40,22 @@ public class NodeController {
             .build();
 
     public static Map<String, Block> blockMap = new HashMap<>(Map.of(genesisBlock.getHash(), genesisBlock));
+    public static Map<String, Block> orphaneBlockMap = new HashMap<>();
     public static Block lastTrueBLock = genesisBlock;
+    public static Boolean isEvil = false;
 
+    @PostMapping("/node/isEvil/")
+    @ResponseBody
+    public boolean setEvil(@RequestBody Boolean isEvil){
+        this.isEvil = isEvil;
+        return this.isEvil;
+    }
+
+    @GetMapping("/node/isEvil/")
+    @ResponseBody
+    public boolean getEvil(){
+        return this.isEvil;
+    }
 
     //getBlocks
     @GetMapping("/node/getBlocks/")
@@ -53,16 +68,31 @@ public class NodeController {
     @ResponseBody
     public Map<String, Block> addNewBlock(@RequestBody Block block) throws Exception {
         String hash = block.getHash();
+        if (!blockMap.containsKey(block.getPreviousHash())) { //orphan block
+            orphaneBlockMap.put(block.getPreviousHash(), block);
+            return blockMap;
+        }
+        if (orphaneBlockMap.containsKey(hash)) {
+            orphaneBlockMap.remove(hash);
+            addNewBlock(block);
+        }
         if (blockMap.containsKey(hash)) {
             return blockMap;
         } else {
             if (Block.isValid(block, blockMap)) {
                 transactionPool = new HashMap<>();
                 blockMap.put(hash, block);
-                lastTrueBLock = block;
+                if (lastTrueBLock.getIndex() > block.getIndex()) {
+                    lastTrueBLock = block;
+                }
             }
         }
         return blockMap;
+    }
+
+    @Scheduled(fixedDelay = 100L)
+    public void triggerMining() throws Exception {
+        mineBlockEndpoint();
     }
 
     //mineBlock
